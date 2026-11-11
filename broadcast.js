@@ -199,6 +199,20 @@ function extractButtons(text, entities) {
 }
 
 // One button per row: a row of two halves each label, and these labels are sentences.
+// An admin who never types /help never learns Button lines exist, and the moment they
+// would want one is the moment they paste a link. So a preview whose text carries a
+// link but no button gets one line underneath, in the DM only. Once a day per admin:
+// a tip on every post becomes noise that trains people to skip Spark's replies.
+const LINK_TIP_EVERY_MS = 24 * 60 * 60 * 1000;
+const LINK_TIP = [
+    'Tip: you can put a tappable button under this post. Send it again with a last line like',
+    '',
+    'Button: Shop now | https://athlo.sg/pages/11-11',
+].join('\n');
+
+const hasLink = (text, entities) =>
+    (entities || []).some((e) => e.type === 'url' || e.type === 'text_link') || /https?:\/\//i.test(String(text ?? ''));
+
 const linkRows = (draft) => (draft?.buttons || []).map((b) => [b]);
 const linkMarkup = (draft) => (draft?.buttons?.length ? { inline_keyboard: linkRows(draft) } : undefined);
 
@@ -485,7 +499,9 @@ function registerBroadcast(bot, opts) {
         adminIds = String(process.env.BROADCAST_ADMIN_IDS || '').split(',').filter(Boolean),
         drafts = makeDraftStore(),
         isAdmin = makeAdminGate({ telegram, chatId, staticIds: adminIds }),
+        now = Date.now,
     } = opts;
+    const tipped = new Map();   // admin id -> when they last got the link tip
 
     if (!chatId) {
         console.warn('⚠️ Broadcast disabled: no CHANNEL_ID.');
@@ -644,6 +660,16 @@ function registerBroadcast(bot, opts) {
             const why = err?.response?.description || err?.message;
             console.error('❌ Could not show the broadcast preview:', why);
             await telegram.sendMessage(chatId, `Could not build a preview: ${why}`).catch(() => {});
+            return;
+        }
+
+        // Not for albums -- they cannot carry a button, so the tip would be a lie.
+        if (draft.media.length <= 1 && !draft.buttons?.length && hasLink(draft.text, draft.entities)) {
+            const last = tipped.get(draft.from);
+            if (last == null || now() - last > LINK_TIP_EVERY_MS) {
+                tipped.set(draft.from, now());
+                await telegram.sendMessage(chatId, LINK_TIP).catch(() => {});
+            }
         }
     }
 

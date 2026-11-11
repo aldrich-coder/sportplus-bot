@@ -921,6 +921,39 @@ function check(name, ok, detail) {
         && JSON.stringify(preview()?.opts?.entities) === JSON.stringify([{ type: 'italic', offset: 0, length: 5 }]),
         JSON.stringify(preview()?.opts));
 
+    // 48-51. The link tip. SECOND_ADMIN, so no earlier case has spent their once-a-day.
+    const tips = () => toDm().filter((s) => /^Tip: you can put a tappable button/.test(s.text || ''));
+    reset();
+    await bot.dispatch(dm(SECOND_ADMIN, 'No link in this one'));
+    const tipNoLink = tips().length;
+    reset();
+    await bot.dispatch(dm(SECOND_ADMIN, 'Has one\nButton: Shop | https://athlo.sg'));
+    const tipWithButton = tips().length;
+    check('no tip without a link, and none when the post already has a button',
+        tipNoLink === 0 && tipWithButton === 0, `noLink=${tipNoLink} withButton=${tipWithButton}`);
+
+    reset();
+    await bot.dispatch(dmMedia(SECOND_ADMIN, photoField('t1'), 'Album https://athlo.sg/a', [], 'g-tip'));
+    await bot.dispatch(dmMedia(SECOND_ADMIN, photoField('t2'), undefined, undefined, 'g-tip'));
+    await sleep(120);
+    // Before the first tip, so SECOND_ADMIN's once-a-day is unspent and this is a real check.
+    check('no tip on an album -- it cannot carry a button',
+        tips().length === 0 && !!buttonFor('News'), `tips=${tips().length}`);
+
+    reset();
+    await bot.dispatch(dm(SECOND_ADMIN, 'Details: https://athlo.sg/pages/11-11',
+        [{ type: 'url', offset: 9, length: 29 }]));
+    const order = toDm().map((s) => (s.opts?.reply_markup ? 'preview' : /^Tip/.test(s.text) ? 'tip' : 'other'));
+    check('link but no button -> the tip, in the DM, underneath the preview, nothing to the group',
+        JSON.stringify(order) === '["preview","tip"]' && toGroup().length === 0
+        && /Button: Shop now \| https:\/\//.test(tips()[0]?.text || ''),
+        JSON.stringify(order));
+
+    reset();
+    await bot.dispatch(dm(SECOND_ADMIN, 'Another https://athlo.sg/x'));
+    check('the tip is once a day per admin, not on every post',
+        tips().length === 0 && !!preview(), `tips=${tips().length}`);
+
     // 11. The dangerous config. THREAD_ID unset used to make the guard compare
     //     undefined to undefined, which is true for every message the bot can see
     //     -- and an admin bot sees all of them.
