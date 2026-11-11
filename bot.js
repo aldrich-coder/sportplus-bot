@@ -48,6 +48,19 @@ const MAX_AGE_HOURS = Number(process.env.MAX_AGE_HOURS || 48);
 // off getChat(-1004299960350).username rather than trusting this line or the env.
 const DISCUSS_URL = process.env.DISCUSS_URL || 'https://t.me/SportPlusXATHLO/332';
 
+// The sportplus News blog also holds "Playbook" stubs: athlo.sg guides mirrored onto
+// sportplus.sg by the Playbook sync (fresh/sportplus-seo/playbook-sync-2026-11-11/sync.py)
+// so they get a homepage slot, then redirect to athlo. They belong on the website, NOT in
+// the group's NEWS topic -- owner, 2026-11-11, after a strength-training guide was posted
+// there as if it were news. The Atom feed carries no tags, so match the two things the
+// sync always writes: the handle prefix `playbook-`, and the outbound link it stamps
+// with utm_medium=playbook. Either one is enough.
+function isPlaybookStub(item) {
+    const link = String(item.link || item.id || '');
+    if (/\/blogs\/news\/playbook-/i.test(link)) return true;
+    return /utm_medium=playbook/i.test(String(item.content || ''));
+}
+
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Wix wraps titles in CDATA but still writes entities inside it, so an ampersand
@@ -164,7 +177,7 @@ async function checkFeedAndPost() {
             const published = item.pubDate ? Date.parse(item.pubDate) : NaN;
             const isRecent = Number.isFinite(published) && published >= cutoff;
             const isNotPosted = !postedLinks.includes(item.link);
-            return isRecent && isNotPosted;
+            return isRecent && isNotPosted && !isPlaybookStub(item);
         });
 
         // Reverse to post oldest first (keeps chronological order in chat)

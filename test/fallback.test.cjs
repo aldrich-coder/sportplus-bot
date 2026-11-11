@@ -33,6 +33,7 @@ let feedEnclosure = { url: 'https://bad.example/broken.jpg' };
 let feedSnippet = 'snippet';    // Shopify hands us the whole article body here
 let pageHtml = null;            // null => the fetch itself rejects
 let photoUrls = [];             // what sendPhoto was actually handed
+let feedExtra = [];             // extra feed items appended after the test article
 
 global.fetch = async () => {
     if (pageHtml === null) throw new Error('ENOTFOUND (stubbed)');
@@ -115,7 +116,7 @@ Module._load = function (request) {
                         pubDate: new Date().toUTCString(), // always inside MAX_AGE_HOURS
                         contentSnippet: feedSnippet,
                         ...(feedEnclosure ? { enclosure: feedEnclosure } : {}),
-                    }],
+                    }, ...feedExtra],
                 };
             }
         };
@@ -328,6 +329,29 @@ const CASES = [
         console.log(`        captions naming both=${brands}/${captions.length}`);
     }
 
+    // Playbook stubs (athlo guides mirrored into the sportplus News blog) stay off
+    // Telegram. Owner, 2026-11-11: on the website yes, in the group no. One stub is
+    // caught by its handle, the other only by the athlo link the sync stamps.
+    {
+        calls = []; captions = [];
+        photoError = null; feedEnclosure = null; pageHtml = null;
+        const now = new Date().toUTCString();
+        feedExtra = [
+            { title: 'STUB BY HANDLE', link: 'https://sportplus.sg/blogs/news/playbook-how-many-days-a-week-should-runners-strength-train', pubDate: now, contentSnippet: 'guide' },
+            { title: 'STUB BY LINK', link: 'https://sportplus.sg/blogs/news/renamed-guide', pubDate: now, contentSnippet: 'guide',
+              content: '<p>x</p><p><a href="https://athlo.sg/blogs/learn/x?utm_source=sportplus&amp;utm_medium=playbook&amp;utm_campaign=athlo_reads">Read the full guide</a></p>' },
+        ];
+        fs.rmSync(path.join(tmp, 'posted_links.json'), { force: true });
+        const { result: res } = await quietly(() => runBot(port));
+        feedExtra = [];
+        const leaked = captions.filter((c) => c.includes('STUB BY')).length;
+        const ok = res.status === 200 && res.body.posted === 1 && leaked === 0;
+        if (!ok) failed++;
+        console.log(`${ok ? '  PASS' : '  FAIL'}  Playbook stubs are skipped, real news still posts`);
+        console.log(`        posted=${res.body.posted}  stubs leaked=${leaked}`);
+        feedEnclosure = { url: 'https://bad.example/broken.jpg' };
+    }
+
     // ...and it must come BACK, or the bouncer is silently dead until a redeploy.
     // First backoff is 5s, so wait for it rather than racing it.
     const deadline = Date.now() + 20000;
@@ -453,8 +477,8 @@ const CASES = [
 
     // The `+ 5` is the hand-counted block of one-off checks between the table-driven
     // groups. It is a literal, so it has to move whenever one is added -- it went 4 -> 5
-    // when the CTA gained its both-brands assertion.
-    const total = CASES.length + 5 + OG_CASES.length + SUMMARY_CASES.length;
+    // when the CTA gained its both-brands assertion, 5 -> 6 for the Playbook-stub skip.
+    const total = CASES.length + 6 + OG_CASES.length + SUMMARY_CASES.length;
     fs.rmSync(tmp, { recursive: true, force: true });
     console.log(failed ? `\n${failed} of ${total} FAILED` : `\nall ${total} passed`);
     process.exit(failed ? 1 : 0);
